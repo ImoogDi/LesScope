@@ -16,12 +16,13 @@ This eurorack-modul is designed for modular-synthesizers as dual channel scope m
 Only two active parts are required to sample the signal at the jack-inputs.  
  1. Arduino Nano V3.x.  
  2. Quad Op Amp MCP6004 rail-to-rail input/output.  
+
 The Arduino Nano samples the amplified signal on two 10-Bit A/D multiplexed inputs.  
 Sampled-data are then traced on the 1.3'' OLED display.  
 Dataentry and menu-selections are possible with that encoder <u>Select</u>.  
 AC/DC coupling is selectable for both channels on two switches.  
 Every channel has two jacks linked together for signal-input and routing to other inputs.  
-That signal on <u>Channel1</u> is normalised to the <u>Trigger</u> input-jack.  
+That signal on <u>Channel1</u> is normalized to the <u>Trigger</u> input-jack.  
 With an additonal cable plugged into the <u>Trigger</u> jack a different trigger-signal can be used.  
 
 
@@ -47,35 +48,6 @@ All parts are common available and DIY-friendly designed.
 - Menu example  
 ![Menu example](./doc/pictures/menu/LesScope_menu.gif) 
 
-- Structure  
-![Menu-Structure](./doc/pictures/menu/LesScope_Menu_Struct.png) 
-<hr>
-There are fife 3.5mm jacks available with following functions.  
-
-<table>
-<tr>
-    <th>Jack-Name</th>
-    <th>Function</th>
-    <th>Comment</th>
-</tr>
-<tr>
-    <td>Channel1 (two jacks)</td>
-    <td>Signal input for <u>Channel1</u></td>
-    <td>the two jacks are linked together and <br>this signal is normalised to <u>Trigger</u> input.</td>
-</tr>
-<tr>
-    <td>Channel2 (two jacks)</td>
-    <td>Signal input for <u>Channel2</u></td>
-    <td>the two jacks are linked together.</td>
-</tr>
-<tr>
-    <td>Trigger</td>
-    <td>Signal input for <u>Trigger</u></td>
-    <td>this signal is normalised to <u>Channel1</u>.</td>
-</tr>
-</table>
-
-
 ## Technical data<a name="technical-data"></a>
 
 - size:  
@@ -89,17 +61,47 @@ There are fife 3.5mm jacks available with following functions.
   -12Volt, 0 mA  
 
 - display:  
-    1,3’’ OLED with SPI interface  
+    128x64 pixel 1.3inch OLED with SPI interface  
 
 - MCU:  
     Arduino Nano V3.x ATmega 328P  
 
-- Measurement-capabilities:  
+- Electrical features:  
+    Rotary encoder with push-button.  
     Two separate channels with AC/DC-coupling.  
+    Input Voltage 10Vp-p for both channels.  
+    Menu selectable signal-amplification (1...4:Channel1; 1...2:Channel2).  
     Sampling-rate range: 50us...100msec on both channels.  
     Separate trigger-input (default linked to <u>Channel1</u>).  
-    Frequency-measurement range: ~10Hz...~6000Hz (only on <u>Channel1</u>).  
-    Tuning-check range: C0(16.35Hz)...C8(4186.01Hz) (only on <u>Channel1</u>).  
+
+- Measurement-capabilities (only on <u>Channel1</u>):  
+    Frequency-measurement range: ~10Hz...~6000Hz.  
+    Tuning-check range: C0(16.35Hz)...C8(4186.01Hz).  
+
+There are fife 3.5mm jacks available with following functions.  
+<table>
+<tr>
+    <th>Jack-Name</th>
+    <th>Function</th>
+    <th>Comment</th>
+</tr>
+<tr>
+    <td>Channel1 (two jacks)</td>
+    <td>Signal input for <u>Channel1</u></td>
+    <td>the two jacks are linked together and <br>this signal is normalized to <u>Trigger</u> input.</td>
+</tr>
+<tr>
+    <td>Channel2 (two jacks)</td>
+    <td>Signal input for <u>Channel2</u></td>
+    <td>the two jacks are linked together.</td>
+</tr>
+<tr>
+    <td>Trigger</td>
+    <td>Signal input for <u>Trigger</u></td>
+    <td>this signal is normalized to <u>Channel1</u>.</td>
+</tr>
+</table>
+
 
 ## References<a name="references"></a>
 
