@@ -2,8 +2,9 @@
  * @file    rotaryencoder.h
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   declaration-file for 'rotaryencoder.cpp'.
- * @version 1.0
- * @date    2025-19-03
+ * @version 1.1
+ * @date    2025-07-10
+ * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
  *

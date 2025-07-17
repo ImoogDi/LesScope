@@ -2,8 +2,9 @@
  * @file    LScopeCfg.h
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   declaration-file used in LesScope-project.
- * @version 1.0
- * @date    2025-19-03
+ * @version 1.1
+ * @date    2025-07-15
+ * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
  *
@@ -89,9 +90,12 @@
 #define TIMER2_50MSEC   999
 #define TIMER2_100MSEC 1999
 
+//sample-data memory-size
+#define SAMPLE_DATA_SIZE  128
+
 //////////////////////////////////////////
 //sw-revision of LesScope
-#define STR_MENU_REVISION     "0.1"
+#define STR_MENU_REVISION     "0.2"
 //////////////////////////////////////////
 
 // value-check for range
@@ -99,11 +103,11 @@
 
 typedef struct channel_val {
   uint8_t status;    //0:= channel off, 1:= on
-  uint8_t time;
   uint8_t amplifier;
+  uint8_t time;
+  int8_t  offset;
   uint8_t trigger_mode;
   uint8_t trigger_level;
-  int8_t  offset;
   uint8_t option;
   bool     sample_draw;
   bool     sample_start;
@@ -121,8 +125,12 @@ typedef struct cfg {
   channel_nr_t  selected_channel;
 } cfg_t;
 
+// EEPROM Addresses
+#define ADDR_CHECKSUM            0
+#define ADDR_CFG_DATA_BASE       2
+
 // global used config.data for exchange between LScopeMenu and LSsample
-extern volatile cfg_t g_cfg;
+extern cfg_t g_cfg;
 
 #if defined (__cplusplus)
 } //extern "C"

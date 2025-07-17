@@ -2,8 +2,9 @@
  * @file    LScopeSample.h
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   declaration-file for 'LScopeSample.c'.
- * @version 1.0
- * @date    2025-19-03
+ * @version 1.1
+ * @date    2025-07-15
+ * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
  *
@@ -40,14 +41,15 @@
     #define F_CPU 16000000UL
   #endif
 
-  #define SAMPLE_DATA_SIZE  128
   typedef struct sample {
     uint8_t data[SAMPLE_DATA_SIZE];
     uint8_t index;
   } sample_t;
 
+  //channel1 sample-data
   extern sample_t channel1;
-  extern sample_t channel2;
+  //pointer to channel2 sample-data for dynamic assignment
+  extern sample_t * pchannel2;
 
   void sample_init( void );
   void set_counter_defaults( void );

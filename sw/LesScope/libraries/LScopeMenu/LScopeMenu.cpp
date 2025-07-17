@@ -2,8 +2,9 @@
  * @file    LScopeMenu.cpp
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   Class: 'CMenu' used for all menu-driven data-handling.
- * @version 1.0
- * @date    2025-19-03
+ * @version 1.1
+ * @date    2025-07-15
+ * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
  *
@@ -30,10 +31,10 @@
 #include "LScopeMenu.h"
 #include "LScopeSample.h"
 #include "LScopeSetHW.h"
-#include <FreqMeasure.h>
+#include <LSFreqMeasure.h>
 
 // global used config.data for exchange between LesScope and Cfg
-volatile cfg_t g_cfg;
+cfg_t g_cfg;
 
 //reference frequency-table
 //  see URL: https://en.wikipedia.org/wiki/MIDI_tuning_standard
@@ -75,13 +76,13 @@ CMenu::CMenu(uint16_t w, uint16_t h, SPIClass *spi, int16_t dc_pin, int16_t rst_
   _menutimer.expired = false;
   _menutimer.Timeout  = millis();
 
-  _drawupdateMenuTimer = millis();
   init_cfg();
+  _menuctrl.menu_updated = true;
   _menuctrl.rowindex = 1;
   _menuctrl.cursor_x=52;
   _menuctrl.cursor_y=_index2_ypixel(_menuctrl.rowindex);
   _menuctrl.mark_on = false;
-  _menuctrl.menu_updated = false;
+  _menuctrl.save_yes = false;
   this->_x_border = this->width() - 1;
   this->_y_border = this->height()- 1;
   CMenu::_draw_channels_running = false;
@@ -195,6 +196,27 @@ void CMenu::updateMenu(void) {
       _menu_state = MENU_DEFAULT;
       _menutimer.expired=false;
       break;
+    case SAVE_REQUEST:
+      _prev_menu = SAVE_REQUEST;
+      _menu_state = SAVE_SET;
+      _menutimer.expired=false;
+      _saveMenu();
+      break;
+    case SAVE_SET:
+      _prev_menu = SAVE_SET;
+      _menu_state = SAVE_DATA;
+      _menutimer.Timeout = millis();
+      if (_menutimer.expired) {
+        _menu_state = DRAW_SAMPLES;
+      }
+      break;
+    case SAVE_DATA:
+      _prev_menu = SAVE_DATA;
+      _menu_state = MENU_DEFAULT;
+      if (_menutimer.expired) {
+        _menu_state = DRAW_SAMPLES;
+      }
+      break;
     default:
       break;
   }
@@ -212,6 +234,7 @@ void CMenu::updateMenu(void) {
 void CMenu::updateSelection(void) {
   int newPosition;
   uint8_t select_rowindex;
+  bool select_save_yes=_menuctrl.save_yes;
 
   switch (_menu_state)
   {
@@ -222,10 +245,6 @@ void CMenu::updateSelection(void) {
       // No break statement, continue through next case
     case MENU_DEFAULT:
       _defaultMenu();
-      //stop adjustment if currently running
-      if (_adjustment_running) {
-        _adjustment_running=false;
-      }
       _menutimer.Timeout = millis();
     break;
     case SETTINGS:
@@ -255,6 +274,19 @@ void CMenu::updateSelection(void) {
           set_trigger_mode(eChannel_nr1);
           //set trigger-level
           set_trigger_level();
+          //allocate/deallocate memory for channel2 if required
+          if ((g_cfg.chan[eChannel_nr1].option == SET_OPT_DUAL) ||
+              (g_cfg.chan[eChannel_nr1].option == SET_OPT_DUAL_PLUGGED))
+          {
+            if(pchannel2 == NULL) {
+              pchannel2 = new sample_t;
+            }
+          } else {
+            if(pchannel2 != NULL) {
+              delete pchannel2;
+              pchannel2 = NULL;
+            }
+          }
         } //end ATOMIC_BLOCK()
 
         //// set parameter for channel2 ////
@@ -269,6 +301,34 @@ void CMenu::updateSelection(void) {
     break;
     case DRAW_SAMPLES:
       _draw_channels();
+    break;
+    case SAVE_REQUEST:
+      //no break
+    case SAVE_SET:
+      if (this->rotaryencoder.down()) {
+        select_save_yes=false;
+        _menutimer.Timeout = millis();
+      }
+      if (this->rotaryencoder.up()) {
+        select_save_yes=true;
+        _menutimer.Timeout = millis();
+      }
+      select_save_yes = range(select_save_yes, false, true);
+      _menuctrl.save_yes = select_save_yes;
+      _saveMenu(select_save_yes);
+    break;
+    case SAVE_DATA:
+      if(_menuctrl.save_yes) {
+        bool write_ok=false;
+        //save data to EEPROM
+        write_ok=_EEPROM_write_cfg();
+        setCursor(10, SAVE_POX_Y+16);
+        (write_ok) ? print(STR_OK) : print(STR_FAILED);
+        display();
+      } else {
+        _menutimer.expired = true;
+      } //end if(_menuctrl.save_yes)
+      _menuctrl.save_yes = false;
     break;
   } //end switch(_menu_state)
   if (_menutimer.expired) {
@@ -291,6 +351,11 @@ void CMenu::updateSelection(void) {
     }
     updateSelection();
   }
+  if (rotaryencoder.getButtonState() == CRotaryEncoder::HoldOn) {
+    _menutimer.expired=false;
+    _menutimer.Timeout= millis();
+    SaveConfigdata();
+  }
 }
 
 /*!
@@ -303,14 +368,9 @@ void CMenu::updateSelection(void) {
  */
 void CMenu::CheckMenuTimeout(void)
 {
-  //no default-display if adjustment is running
-  if (_adjustment_running) {
-    return;
-  }
   // If menu-timer expired, show samples
   if ((_menutimer.expired==false) && ((millis() - _menutimer.Timeout) > WAIT4ACTIONS_TIMEOUT)) {
     _menutimer.expired = true;
-    _drawupdateMenuTimer = millis();
     _menu_state = DRAW_SAMPLES; // Show samples
     this->clearDisplay();
     this->display();
@@ -325,8 +385,13 @@ void CMenu::CheckMenuTimeout(void)
     //reset frequency-values
     this->_frequ_meas_value10 = 0L;
     this->_search_frequency = 0;
-    this->clearDisplay();
-    this->display();
+    //don't clear-display if measurements are running
+    if (( g_cfg.chan[eChannel_nr1].option != SET_OPT_FREQU ) &&
+        ( g_cfg.chan[eChannel_nr1].option != SET_OPT_TUNING))
+    {
+      this->clearDisplay();
+      this->display();
+    }
     updateSelection();    // Refresh screen
   }
 }
@@ -342,11 +407,7 @@ void CMenu::CheckMenuTimeout(void)
 void CMenu::Drawupdate(void) {
   if (this->_menu_state == DRAW_SAMPLES) {
     if (g_cfg.chan[eChannel_nr1].trigger_mode == SET_OFF) {
-      //draw with default timeout
-      if ((millis() - _drawupdateMenuTimer) > DRAWUPDATE_MSEC) {
-        _drawupdateMenuTimer=millis();
         updateSelection();    // Refresh screen
-      }
     } else {
       //draw if required
       if (g_cfg.chan[eChannel_nr1].sample_draw) {
@@ -377,7 +438,6 @@ void CMenu::init_cfg(void)
   g_cfg.chan[eChannel_nr1].trigger_level = SET_TRIG_LEVEL_INTERN;
   g_cfg.chan[eChannel_nr1].sample_draw = true;
   g_cfg.chan[eChannel_nr1].sample_start= true;
-
   //channel2 config
   g_cfg.chan[eChannel_nr2].status = SET_OFF;
   g_cfg.chan[eChannel_nr2].amplifier = SET_AMP_LEVEL_1;
@@ -388,6 +448,24 @@ void CMenu::init_cfg(void)
   g_cfg.chan[eChannel_nr2].trigger_level = SET_TRIG_LEVEL_INTERN;
   g_cfg.chan[eChannel_nr2].sample_draw = true;
   g_cfg.chan[eChannel_nr2].sample_start= true;
+
+  if (_IsEEPROM_data_valid()) {
+    //get cfg-data from EEPROM
+    cfg_t eeprom_data;
+    EEPROM.get(ADDR_CFG_DATA_BASE, eeprom_data);
+    //store required eeprom-data to global cfg-data
+    // channel1 config
+    g_cfg.chan[eChannel_nr1].amplifier    = eeprom_data.chan[eChannel_nr1].amplifier;
+    g_cfg.chan[eChannel_nr1].time         = eeprom_data.chan[eChannel_nr1].time;
+    g_cfg.chan[eChannel_nr1].trigger_mode = eeprom_data.chan[eChannel_nr1].trigger_mode;
+    g_cfg.chan[eChannel_nr1].offset       = eeprom_data.chan[eChannel_nr1].offset;
+    g_cfg.chan[eChannel_nr1].option       = eeprom_data.chan[eChannel_nr1].option;
+    g_cfg.chan[eChannel_nr1].trigger_level= eeprom_data.chan[eChannel_nr1].trigger_level;
+    // channel2 config
+    g_cfg.chan[eChannel_nr2].amplifier    = eeprom_data.chan[eChannel_nr2].amplifier;
+    g_cfg.chan[eChannel_nr2].time         = eeprom_data.chan[eChannel_nr2].time;
+    g_cfg.chan[eChannel_nr2].offset       = eeprom_data.chan[eChannel_nr2].offset;
+  }
 }
 
 void CMenu::_InitDisplay(void)
@@ -576,6 +654,29 @@ void CMenu::_defaultMenu(void) {
   display();
 }
 
+void CMenu::_saveMenu(bool save_data) {
+  clearDisplay();
+  setTextSize(0);
+  setCursor(10, 16);
+  this->print(F("Save config-data?"));
+  setCursor(SAVE_POS_X, SAVE_POX_Y);
+  if (save_data)  {
+      this->setTextColor(SH110X_WHITE);
+      this->print(SAVE_NO);
+      this->print(STR_SLASH);
+      this->setTextColor(SH110X_BLACK, SH110X_WHITE);
+      this->print(SAVE_YES);
+      this->setTextColor(SH110X_WHITE);
+  } else {
+      this->setTextColor(SH110X_BLACK, SH110X_WHITE);
+      this->print(SAVE_NO);
+      this->setTextColor(SH110X_WHITE);
+      this->print(STR_SLASH);
+      this->print(SAVE_YES);
+  }
+  display();
+}
+
 void CMenu::_print_time_str(const uint8_t timevalue) {
   switch (timevalue) {
     case MENU_TIM_50US_VALUE:
@@ -727,63 +828,66 @@ void CMenu::_draw_channels(void) {
 
   //get frequency-value 10 times higher
   this->_read_frequency(_frequ_meas_value10, 10);
-
   if (_update_draw_request()) {
     this->clearDisplay();
-    //draw current sample-time to display
-    this->setCursor(86, 0);
-    this->print(F("1:"));
-    this->_print_time_str(g_cfg.chan[eChannel_nr1].time);
-    if (g_cfg.chan[eChannel_nr2].status == 1) {
-      this->setCursor(86, 32);
-      this->print(F("2:"));
-      this->_print_time_str(g_cfg.chan[eChannel_nr2].time);
-    }
-    //draw measured frequency from channel1 if enabled
-    _draw_frequency_value();
-    //draw note-string if enabled
-    _draw_note_value();
-    //check for option: plugged in on channel2
-    if (g_cfg.chan[eChannel_nr1].option == SET_OPT_DUAL_PLUGGED) {
-      if(_is_plugged_in()) {
-        g_cfg.chan[eChannel_nr2].status = 1;
-      } else {
-        g_cfg.chan[eChannel_nr2].status = 0;
+    if ((g_cfg.chan[eChannel_nr1].option == SET_OPT_FREQU) ||
+        (g_cfg.chan[eChannel_nr1].option == SET_OPT_TUNING))
+    {
+      _show_measurement();
+    } else {
+      //draw current sample-time to display
+      this->setCursor(86, 0);
+      this->print(F("1:"));
+      this->_print_time_str(g_cfg.chan[eChannel_nr1].time);
+      if (g_cfg.chan[eChannel_nr2].status == 1) {
+        this->setCursor(86, 32);
+        this->print(F("2:"));
+        this->_print_time_str(g_cfg.chan[eChannel_nr2].time);
       }
-    }
-
-    for (uint8_t x = 0; x < this->_x_border - 1; x++) {
-      //draw channel1
-        //draw channel1-samples only if enabled (triggered)
-      if (g_cfg.chan[eChannel_nr1].sample_draw) {
-        y0_1 = this->_y_border - (int16_t)channel1.data[x];
-        y1_1 = this->_y_border - (int16_t)channel1.data[(x+1)];
-        if (g_cfg.chan[eChannel_nr2].status == SET_ON) {
-          //set amplitude/2, if both draws are visible
-          y0_1 = y0_1/2;
-          y1_1 = y1_1/2;
+      //check for option: plugged in on channel2
+      if (g_cfg.chan[eChannel_nr1].option == SET_OPT_DUAL_PLUGGED) {
+        if(_is_plugged_in()) {
+          g_cfg.chan[eChannel_nr2].status = 1;
+        } else {
+          g_cfg.chan[eChannel_nr2].status = 0;
         }
-        y0_1 -= g_cfg.chan[eChannel_nr1].offset;
-        y1_1 -= g_cfg.chan[eChannel_nr1].offset;
-        //check range, max +-1 line out of boarder for best drawing
-        y0_1 = range(y0_1, -1, this->_y_border+1);
-        y1_1 = range(y1_1, -1, this->_y_border+1);
-        this->drawLine((int16_t)x, y0_1, (int16_t)(x+1), y1_1, SH110X_WHITE); //left to right
       }
-      //draw channel2-samples only if second draw is enabled
-      if (g_cfg.chan[eChannel_nr2].status == 1)
-      {
-        //set amplitude/2 and add offset
-        y0_2 = (this->_y_border - (int16_t)channel2.data[x])/2 + 31 - g_cfg.chan[eChannel_nr2].offset;
-        y1_2 = (this->_y_border - (int16_t)channel2.data[(x+1)])/2 + 31 - g_cfg.chan[eChannel_nr2].offset;
-        //check range, max +-1 line out of boarder for best drawing
-        y0_2 = range(y0_2, -1, this->_y_border+1);
-        y1_2 = range(y1_2, -1, this->_y_border+1);
-        this->drawLine((int16_t)x, y0_2, (int16_t)(x+1), y1_2, SH110X_WHITE); //left to right
+
+      for (uint8_t x = 0; x < this->_x_border - 1; x++) {
+        //draw channel1
+          //draw channel1-samples only if enabled (triggered)
+        if (g_cfg.chan[eChannel_nr1].sample_draw) {
+          y0_1 = this->_y_border - (int16_t)channel1.data[x];
+          y1_1 = this->_y_border - (int16_t)channel1.data[(x+1)];
+          if (g_cfg.chan[eChannel_nr2].status == SET_ON) {
+            //set amplitude/2, if both draws are visible
+            y0_1 = y0_1/2;
+            y1_1 = y1_1/2;
+          }
+          y0_1 -= g_cfg.chan[eChannel_nr1].offset;
+          y1_1 -= g_cfg.chan[eChannel_nr1].offset;
+          //check range, max +-1 line out of boarder for best drawing
+          y0_1 = range(y0_1, -1, this->_y_border+1);
+          y1_1 = range(y1_1, -1, this->_y_border+1);
+          this->drawLine((int16_t)x, y0_1, (int16_t)(x+1), y1_1, SH110X_WHITE); //left to right
+        }
+
+        //draw channel2-samples only if second draw is enabled
+        if ((g_cfg.chan[eChannel_nr2].status == 1) && pchannel2 != NULL)
+        {
+          //set amplitude/2 and add offset
+          y0_2 = (this->_y_border - (int16_t)pchannel2->data[x])/2 + 31 - g_cfg.chan[eChannel_nr2].offset;
+          y1_2 = (this->_y_border - (int16_t)pchannel2->data[(x+1)])/2 + 31 - g_cfg.chan[eChannel_nr2].offset;
+          //check range, max +-1 line out of boarder for best drawing
+          y0_2 = range(y0_2, -1, this->_y_border+1);
+          y1_2 = range(y1_2, -1, this->_y_border+1);
+          this->drawLine((int16_t)x, y0_2, (int16_t)(x+1), y1_2, SH110X_WHITE); //left to right
+        }
+        this->display();
       }
-      this->display();
     }
   } //end if (_update_draw_request()
+
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
     //channel1
     if (g_cfg.chan[eChannel_nr1].trigger_mode == SET_OFF) {
@@ -805,45 +909,76 @@ void CMenu::_draw_channels(void) {
 //  PINC = (1<<PINC5);
 }
 
-void CMenu::_draw_frequency_value(void) {
-  // draw frequency-value if options are set to 'On' channel1.
-  if (( g_cfg.chan[eChannel_nr1].option == SET_OPT_FREQU ) || \
-     ( g_cfg.chan[eChannel_nr1].option == SET_OPT_TUNING ))
-  {
-    uint16_t current_value = (uint16_t)_frequ_meas_value10/10.0;
-    this->setCursor(0, 55);
-    this->print(F("Freq(Hz):"));
-    //this-print((float)_frequency_value, 1); //will not work
-    this->print((uint16_t)current_value);
-    this->print(F("."));
-    this->print((uint16_t)(_frequ_meas_value10 - current_value*10.0));
-    this->display();
+/*!
+ *
+ * name: _show_measurement
+ * @brief  show measurement values on display.
+ * @param  none
+ * @return none
+ *
+ */
+void CMenu::_show_measurement(void) {
+  //show measured-value: frequency from channel1 (if enabled)
+  if ( g_cfg.chan[eChannel_nr1].option == SET_OPT_FREQU ) {
+    _draw_frequency_value(DRAW_BIG_SIZE);
+  }
+  //show measured note-string (if enabled)
+  if (g_cfg.chan[eChannel_nr1].option == SET_OPT_TUNING) {
+    _draw_note_value();
+    _draw_frequency_value();
   }
 }
 
-void CMenu::_draw_note_value(void) {
-  if (g_cfg.chan[eChannel_nr1].option == SET_OPT_TUNING) {
-    this->setCursor(0, 0);
-    _print_note_value();
-    this->display();
+void CMenu::_draw_frequency_value(bool bigsize) {
+  // draw frequency-value if options are set to 'On' channel1.
+  uint16_t current_value = (uint16_t)_frequ_meas_value10/10.0;
+  if (bigsize) {
+    setTextSize(2);
+    setCursor(10, 25);
+  } else {
+    setTextSize(0);
+    this->setCursor(0, 47);
+    this->print(F("Freq(Hz):"));
   }
+  //this-print((float)_frequency_value, 1); //will not work
+  this->print((uint16_t)current_value);
+  this->print(F("."));
+  this->print((uint16_t)(_frequ_meas_value10 - current_value*10.0));
+  if (bigsize) {
+    this->print(F(" Hz"));
+  }
+  this->display();
+}
+
+void CMenu::_draw_note_value(void) {
+  uint8_t xpos = 64;
+  uint8_t note_index=0;
+  this->setCursor(43, 0);
+  note_index = _print_note_value();
+  //required pitch-mark in the middle
+  this->drawLine(64, 10, 64, 18, SH110X_WHITE);
+  //draw ruler
+  for (uint8_t x=4; x < this->_x_border; x+=6) {
+    if ((x-4) % 12) {
+      this->drawLine(x, 19, x, 23, SH110X_WHITE);
+    } else {
+      this->drawLine(x, 19, x, 27, SH110X_WHITE);
+    }
+  }
+  xpos = this->_get_procent_xpos(note_index, this->_search_frequency);
+  //draw current measured pitch-mark
+  this->drawLine(xpos, 30, xpos, 40, SH110X_WHITE);
+  this->display();
 }
 
 void CMenu::_read_frequency(double & freq_meas, const uint16_t multiply) {
   if (FreqMeasure.available()) {
-    // average several reading together
-    _frequ_sum += FreqMeasure.read();
-    _frequ_count += 1;
-    if (_frequ_count > 10) {
-      freq_meas = (double)(multiply * FreqMeasure.countToFrequency(_frequ_sum / _frequ_count));
-      _frequ_sum = 0;
-      _frequ_count = 0;
-    }
+    freq_meas = (double)(multiply * FreqMeasure.countToFrequency(FreqMeasure.read() / 1));
   }
 }
 
-void CMenu::_print_note_value(void) {
-  int8_t note_index;
+int8_t CMenu::_print_note_value(void) {
+  int8_t note_index=0;
   note_index = _find_note_index();
   if (note_index < 0 ) {
     this->print(STR_NOTE_FAIL_R);
@@ -913,6 +1048,7 @@ void CMenu::_print_note_value(void) {
     this->setTextColor(SH110X_WHITE);
     this->print(STR_NOTE_OK_L);
   }
+  return note_index;
 }
 
 int8_t CMenu::_find_note_index(void) {
@@ -977,6 +1113,7 @@ bool CMenu::_is_inlimits(const uint8_t & noteindex, const uint16_t &current_freq
   }
   return rtn_value;
 }
+
 void CMenu::_get_limits(const uint16_t nominal, uint16_t & lower, uint16_t & upper, const uint8_t percent) {
   double limit;
   limit = ((double)nominal * (100L-percent)/100L);
@@ -985,8 +1122,46 @@ void CMenu::_get_limits(const uint16_t nominal, uint16_t & lower, uint16_t & upp
   upper = (uint16_t)limit;
 }
 
+uint8_t CMenu::_get_procent_xpos(const uint8_t & noteindex, const uint16_t &current_freq) {
+  uint8_t rtn_value = 255;
+  double pixel_value=0L;
+  int16_t freq_diff = 0;
+  int16_t permillies = 0;
+  int8_t percent_value = 0;
+  uint16_t nominal_freq = 0;
+
+  if (noteindex>0 && noteindex<13) {
+    nominal_freq = pgm_read_word(&g_ref_frequ10[noteindex]);
+    freq_diff = current_freq - nominal_freq;
+    // 12 pixles pro-cent
+    pixel_value = static_cast<double>(freq_diff)/static_cast<double>(nominal_freq);
+    pixel_value *= 1200L;
+    permillies = static_cast<int16_t>(pixel_value*10L/12L);
+    rtn_value = static_cast<uint8_t>(pixel_value) + 64;
+  }
+  if (rtn_value == 255) {
+    rtn_value = 0; // left xpos as default on error
+  } else {
+    rtn_value = range(rtn_value, 0, this->_x_border);;
+  }
+  //print percent-value on display
+  percent_value = static_cast<int8_t>(permillies/10);
+  this->setCursor(98, 0);
+  if (permillies >= 0) {
+    this->print(F("+"));
+  } else {
+    this->print(F("-"));
+  }
+  this->print(abs(percent_value));
+  this->print(F("."));
+  this->print(abs(permillies - percent_value*10));
+  this->print(F("%"));
+  this->display();
+  return rtn_value;
+}
+
 bool CMenu::_update_draw_request(void) {
-  bool rtn_value=true;
+  bool rtn_value=false;
   if (_frequ_meas_value10 > 0L) {
     uint16_t lower, upper, current_freq;
     _get_limits(_old_frequ_meas_value, lower, upper);
@@ -1018,17 +1193,87 @@ bool CMenu::_update_draw_request(void) {
  *
  */
 bool CMenu::_is_plugged_in(void) {
-  bool rtn_value = true;
+  bool rtn_value = false;
   uint16_t average_value_ch2 = 0;
   uint8_t max_value=0, min_value=128;
-  for (uint8_t x=0; x < (this->_x_border - 1); x++) {
-    max_value = max(channel2.data[x], max_value);
-    min_value = min(channel2.data[x], min_value);
-    average_value_ch2 += (uint16_t)channel2.data[x];
-  }
-  average_value_ch2 /= (this->_x_border - 1);
-  if (((max_value - min_value) <= 5) && (uint8_t)(average_value_ch2 < 15)) {
-    rtn_value = false;
+  if (pchannel2 != NULL) {
+    for (uint8_t x=0; x < (this->_x_border - 1); x++) {
+      max_value = max(pchannel2->data[x], max_value);
+      min_value = min(pchannel2->data[x], min_value);
+      average_value_ch2 += (uint16_t)pchannel2->data[x];
+    }
+    average_value_ch2 /= (this->_x_border - 1);
+    if (((max_value - min_value) <= 5) && (uint8_t)(average_value_ch2 < 15)) {
+      rtn_value = false;
+    } else {
+      rtn_value = true;
+    }
   }
   return rtn_value;
+}
+
+/*!
+ *
+ * name:   _make_checksum()
+ * @param  mem_type: type of memory-location for checksum
+ * @return XOR checksum from cfg-data
+ *
+ */
+uint8_t CMenu::_make_checksum(const uint8_t mem_type) {
+  uint8_t checksum = 0;
+  uint8_t * p_byte = (uint8_t *)&g_cfg;
+
+  for (int addr=0; addr<sizeof(cfg_t); addr++) {
+    if (mem_type == MEM_TYPE_EEPROM) {
+      checksum ^= EEPROM[ADDR_CFG_DATA_BASE + addr];
+    }
+    if (mem_type == MEM_TYPE_GLOBAL) {
+      checksum ^= *p_byte++;
+    }
+  }
+  return checksum;
+}
+
+/*!
+ *
+ * name:   _IsEEPROM_data_valid()
+ * @param  none
+ * @return true, if EEPROM-data valid, else false
+ *
+ */
+bool CMenu::_IsEEPROM_data_valid(void) {
+  if (EEPROM[ADDR_CHECKSUM] == _make_checksum(MEM_TYPE_EEPROM)) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+/*!
+ *
+ * name:   _EEPROM_write_cfg()
+ * @param  none
+ * @return true, if EEPROM-data write successfull, else false
+ *
+ */
+bool CMenu::_EEPROM_write_cfg(void) {
+  bool rtn_value = false;
+  uint8_t checksum = 0;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    checksum = _make_checksum(MEM_TYPE_GLOBAL);
+    //write global config-data
+    EEPROM.put(ADDR_CFG_DATA_BASE, g_cfg);
+    //write checksum
+    EEPROM.write(ADDR_CHECKSUM, checksum);
+  }  //end ATOMIC_BLOCK()
+  //compare global config-checksum with EEPROM-checksum
+  if (checksum == _make_checksum(MEM_TYPE_EEPROM)) {
+    rtn_value = true;
+  }
+  return rtn_value;
+}
+
+void CMenu::SaveConfigdata(void) {
+  _menu_state = SAVE_REQUEST;
+  updateMenu();
 }

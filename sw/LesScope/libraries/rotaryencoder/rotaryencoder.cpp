@@ -3,8 +3,9 @@
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   returns current state of encoder-data and encoder-switch.
  *           update() has to be called cyclic.
- * @version 1.0
- * @date    2025-19-03
+ * @version 1.1
+ * @date    2025-07-10
+ * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
  *
@@ -108,9 +109,7 @@ bool CRotaryEncoder::update(void)
           if (_keyDownTicks > (ENC_HOLDTIME / ENC_DEBOUNCE_DELAY)) {
             _button = HoldOn;
           }
-        } //end if button_pushed
-
-        if ( ! _button_pushed ) {
+        } else {
           if (_keyDownTicks) {
             if (_button == HoldOn) {
               _button = Released;

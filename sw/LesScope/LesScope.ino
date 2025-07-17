@@ -2,8 +2,9 @@
  * @file    LesScope.ino
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   setup- and loop-part of project: LesScope.
- * @version 1.0
- * @date    2025-19-03
+ * @version 1.1
+ * @date    2025-07-15
+ * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
  *
@@ -98,7 +99,7 @@ void loop() {
     switch (bstate)
     {
       case CRotaryEncoder::HoldOn:
-        // not yet used
+        LSMenu.SaveConfigdata();
         break;
       case CRotaryEncoder::Released:
         break;

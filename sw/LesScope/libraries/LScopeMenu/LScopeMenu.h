@@ -2,8 +2,9 @@
  * @file    LScopeMenu.h
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   declaration-file for 'LScopeMenu.cpp'.
- * @version 1.0
- * @date    2025-19-03
+ * @version 1.1
+ * @date    2025-07-15
+ * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
  *
@@ -29,6 +30,7 @@
 #include <stdio.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include <EEPROM.h>
 
 #ifndef cfg_t
   #include "LScopeCfg.h"
@@ -48,7 +50,9 @@ typedef enum eMenu {
   SETTINGS,
   SELECT_VALUES,
   DRAW_SAMPLES,
+  SAVE_REQUEST,
   SAVE_SET,
+  SAVE_DATA,
 } eMenu_t;
 
 typedef struct menuctrl_val {
@@ -57,6 +61,7 @@ typedef struct menuctrl_val {
   uint8_t cursor_y;
   bool mark_on;
   bool menu_updated;
+  bool save_yes;
 } menuctrl_t;
 
 typedef struct menutimer_val {
@@ -108,6 +113,8 @@ typedef struct note_value {
 #define STR_MENU_MODUL_TYPE   F("Dual Channel Scope")
 #define STR_MENU_OWNER        F("github.com/ImoogDi")
 
+#define DRAW_BIG_SIZE         true
+
 //note str-defines
 #define STR_NOTE_C            F("C ")
 #define STR_NOTE_CIS          F("C#")
@@ -126,6 +133,18 @@ typedef struct note_value {
 #define STR_NOTE_OK_L         F("< ")
 #define STR_NOTE_FAIL_L       F(">>")
 #define STR_NOTE_FAIL_R       F("<<")
+#define STR_SLASH             F("/")
+
+#define STR_OK                F("OK")
+#define STR_FAILED            F("write failed")
+
+#define SAVE_POS_X            40
+#define SAVE_POX_Y            32
+#define SAVE_YES              F("yes")
+#define SAVE_NO               F("no")
+
+#define MEM_TYPE_EEPROM       1
+#define MEM_TYPE_GLOBAL       2
 
 /*!
  *
@@ -164,28 +183,24 @@ class CMenu : public Adafruit_SH1106G
     void CheckMenuTimeout(void);
     void Drawupdate(void);
     void displayModulName(void);
+    void SaveConfigdata(void);
 
   private:
     int16_t _x_border;
     int16_t _y_border;
     eMenu_t _menu_state{STARTUP};
     eMenu_t _prev_menu{MENU_DEFAULT};
-    volatile menuctrl_t _menuctrl;
+    menuctrl_t _menuctrl;
     //frequency-measurent values
     double   _frequ_meas_value10={0L};
-    double   _frequ_sum{0L};
-    uint16_t _frequ_count={0};
     uint16_t _old_frequ_meas_value={0};
     uint16_t _search_frequency={0};
     int8_t   _note_octave={4};
-    // flag indicating Adjustment true := running
-    bool  _adjustment_running{false};
     // Flag indicating expired timer to show Default-menu
     menutimer_t _menutimer;
-    unsigned long int _drawupdateMenuTimer{0L};
     unsigned long int _drawupdateTimer{0L};
 
-    void _draw_frequency_value(void);
+    void _draw_frequency_value(bool bigsize=false);
     void _draw_note_value(void);
     uint8_t _index2_ypixel(const uint8_t index);
     void _print_time_str(const uint8_t timevalue);
@@ -196,8 +211,9 @@ class CMenu : public Adafruit_SH1106G
     void _print_row_str(const uint8_t index, const channel_nr_t channel_nr);
     void _print_value_str(const uint8_t index, const channel_nr_t channel_nr, const uint8_t oldvalue);
     void _read_frequency(double & freq_meas, const uint16_t multiply=1);
-    void _print_note_value(void);
+    int8_t _print_note_value(void);
     int8_t _find_note_index(void);
+    uint8_t _get_procent_xpos(const uint8_t & noteindex, const uint16_t &current_freq);
     void _get_limits(const uint16_t nominal_freq, uint16_t & lower, uint16_t & upper, const uint8_t percent=3);
     bool _is_inlimits(const uint8_t & noteindex, const uint16_t & current_freq, const uint8_t percent=1);
     bool _update_draw_request(void);
@@ -206,6 +222,12 @@ class CMenu : public Adafruit_SH1106G
     void _defaultMenu(void);
     void _InitDisplay(void);
     void _draw_channels(void);
+    void _show_measurement(void);
+    void _saveMenu(bool save_data = false);
+
+    uint8_t _make_checksum(const  uint8_t mem_type=MEM_TYPE_GLOBAL);
+    bool _IsEEPROM_data_valid(void);
+    bool _EEPROM_write_cfg(void);
 }; //end CMenu
 
 #endif // end #ifndef _LSCOPEMENU_h_

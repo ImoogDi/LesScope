@@ -2,8 +2,9 @@
  * @file    LScopeSample.c
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   initialisation, sampling and interrupt-handling for LesScope.
- * @version 1.0
- * @date    2025-19-03
+ * @version 1.1
+ * @date    2025-07-15
+ * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
  *
@@ -36,8 +37,10 @@ int16_t _sample_counter2;
 
 unsigned long int _Trigger_Timeout=0L;
 
+//channel1 sample-data
 sample_t channel1;
-sample_t channel2;
+//pointer to channel2 sample-data for dynamic assignment
+sample_t * pchannel2={NULL};
 
 int16_t _counter_values[]={ TIMER2_05MSEC, //0 default
                             TIMER2_50USEC, //1
@@ -74,7 +77,9 @@ void sample_init( void )
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
     set_counter_defaults();
     channel1.index = 0;
-    channel2.index = 0;
+    if (pchannel2 != NULL) {
+      pchannel2->index = 0;
+    }
 
     //ADC settings
     ADCSRA &= 0x90; // ADC enable, clear ADIF interrupt-flag
@@ -148,7 +153,7 @@ bool is_triggertimeout(channel_nr_t eChannel, const uint8_t menu_timeout) {
         if (eChannel == eChannel_nr1) {
           channel1.data[x]=31; //set to offset-value channel1
         } else {
-          channel2.data[x]=45; //set to offset-value channel2
+          pchannel2->data[x]=45; //set to offset-value channel2
         }
       }
       rtn_value=true;
@@ -210,7 +215,6 @@ ISR(TIMER2_COMPA_vect)
   } else {
     _sample_counter1  = _counter_values[g_cfg.chan[eChannel_nr1].time];
   }
-
   //sample channel2, if required
   if (g_cfg.chan[eChannel_nr2].sample_draw  == false) {
     if ((g_cfg.chan[eChannel_nr2].status == 1) || \
@@ -229,11 +233,13 @@ ISR(TIMER2_COMPA_vect)
         // ADSC is cleared when the conversion finishes
         while ((ADCSRA & (1<<ADSC))) {};
         //get value from ADCL/ADCH and save it
-        channel2.data[channel2.index] = ADC/16;
-        channel2.index++;
-        if (channel2.index >= SAMPLE_DATA_SIZE) {
-          channel2.index = 0;
-          g_cfg.chan[eChannel_nr2].sample_draw = true;
+        if (pchannel2 != NULL) {
+          pchannel2->data[pchannel2->index] = ADC/16;
+          pchannel2->index++;
+          if (pchannel2->index >= SAMPLE_DATA_SIZE) {
+            pchannel2->index = 0;
+            g_cfg.chan[eChannel_nr2].sample_draw = true;
+          }
         }
         _sample_counter2  = _counter_values[g_cfg.chan[eChannel_nr2].time];
 
@@ -264,8 +270,10 @@ ISR(ANALOG_COMP_vect)
         //reset index channel1 for start sampling with index:=0
         channel1.index = 0;
         _sample_counter1 = 0;
-        //reset index channel2 at this trigger-time for best drawing
-        channel2.index = 0;
+        if (pchannel2 != NULL) {
+          //reset index channel2 at this trigger-time for best drawing
+          pchannel2->index = 0;
+        }
         _sample_counter2 = 0;
         g_cfg.chan[eChannel_nr1].sample_start = true;
         g_cfg.chan[eChannel_nr2].sample_start = true;
