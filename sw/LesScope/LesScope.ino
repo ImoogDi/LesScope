@@ -2,8 +2,8 @@
  * @file    LesScope.ino
  * @author  ImoogDi (https://github.com/ImoogDi/)
  * @brief   setup- and loop-part of project: LesScope.
- * @version 1.1
- * @date    2025-07-15
+ * @version 1.2
+ * @date    2025-07-18
  * @copyright Copyright (c) 2025
  *
  *  This file is part of LesScope.
@@ -43,7 +43,7 @@
  *  encoder turn  left/right: menu activating, selection and changing data.
  *  button short  press     : mark and store selected data.
  *  button double press     : back to previous menu (only if menu is active).
- *  button long   press     : not currently used
+ *  button long   press     : saving configuration-data to EEPROM.
  *
  * The signal-draw is automatic active again after 5 seconds without any
  *  encoder and/or button action.
