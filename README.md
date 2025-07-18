@@ -30,7 +30,7 @@ All parts are common available and DIY-friendly designed.
 (Details see attached pictures)  
 
 - Modul Frontpanel  
-![Modul: LesScope Front](./doc/pictures/LesScope_front.png) 
+![Modul: LesScope Front](./doc/pictures/modul/LesScope_modul.gif) 
 
 - Modul Backside  
 ![Modul: LesScope Backside](./doc/pictures/LesScope_backside.png) 
